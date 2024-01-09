@@ -3,28 +3,38 @@
 #include <SD.h>
 #include <TinyGPS++.h>
 
+// Constants
 const int numberOfSubUnits = 14;
 const int subUnitAddresses[numberOfSubUnits] = {/* your sub-unit I2C addresses */};
 const int chipSelect = /* your SD card CS pin */;
+
+// GPS and File System
 TinyGPSPlus gps;
-HardwareSerial SerialGPS(1); // Assuming GPS is on Serial1
+char fileName[50];
 
 void setup() {
   Serial.begin(115200);
-  SerialGPS.begin(9600, SERIAL_8N1, /* RX pin */, /* TX pin */); // Set these pins according to your GPS wiring
-  Wire.begin(); // Start I2C as master
+  Serial.println("Starting...");
 
-  if (!SD.begin(chipSelect)) {
-    Serial.println("SD Card initialization failed!");
-    return;
+  // Initialize SD Card
+  SPI.begin(23, 33, 19, -1); // Adjust pin numbers as per your hardware setup
+  while (!SD.begin(-1, SPI, 40000000)) {
+    Serial.println("SD Card initialization failed! Retrying...");
+    delay(500);
   }
-
   Serial.println("SD Card initialized.");
+
+  // Initialize GPS
+  Serial1.begin(9600, SERIAL_8N1, 22, -1); // Adjust pin numbers as per your GPS module
+  Serial.println("GPS Serial initialized.");
+
+  waitForGPSFix();
+  initializeFile();
 }
 
 void loop() {
-  while (SerialGPS.available() > 0) {
-    gps.encode(SerialGPS.read());
+  while (Serial1.available() > 0) {
+    gps.encode(Serial1.read());
   }
 
   for (int i = 0; i < numberOfSubUnits; i++) {
@@ -47,49 +57,42 @@ void requestWiFiDataFromSubUnit(int address) {
   if (!receivedData.equals("No new data")) {
     Serial.println("Data from Sub-unit " + String(address, HEX) + ":");
     Serial.println(receivedData);
-    writeToSDCard(receivedData);
+    logData(receivedData);
   }
 }
 
-void writeToSDCard(String data) {
-  File dataFile = SD.open("WiFiData.csv", FILE_WRITE);
-
-  if (dataFile) {
-    String csvLine;
-    String gpsData = getGPSData();
-
-    while (data.length() > 0) {
-      int newlineIndex = data.indexOf('\n');
-      if (newlineIndex == -1) {
-        csvLine = data;
-        data = "";
-      } else {
-        csvLine = data.substring(0, newlineIndex);
-        data.remove(0, newlineIndex + 1);
-      }
-
-      dataFile.println(csvLine + "," + gpsData);
+void waitForGPSFix() {
+  Serial.println("Waiting for GPS fix...");
+  while (!gps.location.isValid()) {
+    if (Serial1.available() > 0) {
+      gps.encode(Serial1.read());
     }
+    delay(250);
+  }
+  Serial.println("GPS fix obtained.");
+}
+
+void initializeFile() {
+  snprintf(fileName, sizeof(fileName), "/WiFiData-%04d%02d%02d-%02d%02d%02d.csv",
+           gps.date.year(), gps.date.month(), gps.date.day(),
+           gps.time.hour(), gps.time.minute(), gps.time.second());
+
+  File dataFile = SD.open(fileName, FILE_WRITE);
+  if (dataFile) {
+    dataFile.println("MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,Latitude,Longitude,AltitudeMeters,AccuracyMeters,Type");
+    dataFile.close();
+    Serial.println("New file created: " + String(fileName));
+  } else {
+    Serial.println("Error creating new file: " + String(fileName));
+  }
+}
+
+void logData(String data) {
+  File dataFile = SD.open(fileName, FILE_APPEND);
+  if (dataFile) {
+    dataFile.println(data);
     dataFile.close();
   } else {
-    Serial.println("Error opening SD card file.");
+    Serial.println("Error writing to file: " + String(fileName));
   }
-}
-
-String getGPSData() {
-  String gpsInfo = "";
-  if (gps.location.isValid()) {
-    gpsInfo += String(gps.location.lat(), 6);
-    gpsInfo += ",";
-    gpsInfo += String(gps.location.lng(), 6);
-    gpsInfo += ",";
-    gpsInfo += String(gps.altitude.meters());
-    gpsInfo += ",";
-    gpsInfo += String(gps.date.value()); // Or format date as needed
-    gpsInfo += ",";
-    gpsInfo += String(gps.time.value()); // Or format time as needed
-  } else {
-    gpsInfo = "0,0,0,0,0"; // No GPS data available
-  }
-  return gpsInfo;
 }
