@@ -4,8 +4,8 @@ This repository contains the code for a project utilizing M5 Atom devices for sc
 
 ## Repository Structure
 
-- `DomESP32/`: Contains the code for the Dom M5 Atom GPS unit.
-- `SubUnitESP32/`: Contains the code for the Sub M5 Atom Matrix units.
+- `Dom.ino/`: Contains the code for the Dom M5 Atom GPS unit.
+- `Sub.ino/`: Contains the code for the Sub M5 Atom Matrix units.
 - `README.md`: Documentation detailing the project and setup instructions.
 
 ## Hardware Requirements
