@@ -1,73 +1,115 @@
 #include <Wire.h>
 #include <WiFi.h>
-#include <vector>
+#include <FastLED.h>
 
-const int i2cAddress = 0xXX; // Replace XX with a unique I2C address for this sub-unit
-const int wifiChannel = 1;   // Set your WiFi channel here
-std::vector<String> newNetworks;
-bool newDataAvailable = false;
+struct NetworkInfo {
+    char ssid[32];
+    char bssid[18];
+    int32_t rssi;
+    char security[20];
+    uint8_t channel;
+};
+
+const int i2c_slave_address = 0x55;
+const int LED_PIN = 27;
+const int MAX_NETWORKS = 500;
+NetworkInfo networks[MAX_NETWORKS];
+int networkCount = 0;
+int currentNetworkIndex = 0;
+CRGB led;
 
 void setup() {
-  Serial.begin(115200);
-  Wire.begin(i2cAddress);
-  Wire.onRequest(requestEvent);
+    Serial.begin(115200);
+    Serial.println("[SLAVE] Starting up");
 
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  delay(100);
-  startWifiScan();
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    FastLED.addLeds<WS2812, LED_PIN, GRB>(&led, 1);
+    led = CRGB::Black;
+    FastLED.show();
+
+    Wire.begin(i2c_slave_address);
+    Wire.onRequest(requestEvent);
+    Serial.println("[SLAVE] I2C initialized");
 }
 
 void loop() {
-  if (WiFi.scanComplete() > 0) {
-    storeNewNetworks();
-    startWifiScan(); // Start a new scan
-  }
-  delay(10); // Small delay for stability
-}
-
-void startWifiScan() {
-  WiFi.scanNetworks(true, false, wifiChannel); // Async scan on specified channel
-}
-
-void storeNewNetworks() {
-  int n = WiFi.scanComplete();
-  for (int i = 0; i < n; ++i) {
-    String ssid = WiFi.SSID(i);
-    String bssid = WiFi.BSSIDstr(i);
-    String networkDetails = ssid + "," + bssid + "," + getCapabilities(i) + "," + 
-                            WiFi.RSSI(i) + "," + WiFi.channel(i) + "," + millis();
-    if (!isNetworkKnown(bssid)) {
-      newNetworks.push_back(networkDetails);
-      newDataAvailable = true;
+    if (networkCount < MAX_NETWORKS) {
+        WiFi.scanNetworks(true);
+        delay(5000);
+        int n = WiFi.scanComplete();
+        if (n >= 0) {
+            for (int i = 0; i < n; ++i) {
+                addNetwork(WiFi.SSID(i), WiFi.BSSIDstr(i), WiFi.RSSI(i), WiFi.encryptionType(i), WiFi.channel(i));
+            }
+            WiFi.scanDelete();
+        }
     }
-  }
-  WiFi.scanDelete();
 }
 
-bool isNetworkKnown(const String& bssid) {
-  for (const auto& network : newNetworks) {
-    if (network.startsWith(bssid + ",")) {
-      return true;
+void addNetwork(const String& ssid, const String& bssid, int32_t rssi, wifi_auth_mode_t encryptionType, uint8_t channel) {
+    if (!isNetworkInList(bssid) && networkCount < MAX_NETWORKS) {
+        strncpy(networks[networkCount].ssid, ssid.c_str(), sizeof(networks[networkCount].ssid) - 1);
+        strncpy(networks[networkCount].bssid, bssid.c_str(), sizeof(networks[networkCount].bssid) - 1);
+        networks[networkCount].rssi = rssi;
+        strncpy(networks[networkCount].security, getAuthType(encryptionType), sizeof(networks[networkCount].security) - 1);
+        networks[networkCount].channel = channel;
+        Serial.println("[SLAVE] Added network: SSID: " + ssid + ", BSSID: " + bssid + ", RSSI: " + String(rssi) + ", Security: " + getAuthType(encryptionType) + ", Channel: " + String(channel));
+        networkCount++;
     }
-  }
-  return false;
 }
 
-String getCapabilities(int networkIndex) {
-  return WiFi.encryptionType(networkIndex) == WIFI_AUTH_OPEN ? "Open" : "Secured";
+bool isNetworkInList(const String& bssid) {
+    for (int i = 0; i < networkCount; ++i) {
+        if (strcmp(networks[i].bssid, bssid.c_str()) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void requestEvent() {
-  if (newDataAvailable) {
-    String dataToSend = "";
-    for (const auto& network : newNetworks) {
-      dataToSend += network + "\n"; // Each network's data is separated by a newline
+    if (currentNetworkIndex < networkCount) {
+        Wire.write((byte*)&networks[currentNetworkIndex], sizeof(NetworkInfo));
+        Serial.println("[SLAVE] Sending network: " + String(networks[currentNetworkIndex].ssid));
+        currentNetworkIndex++;
+    } else {
+        Serial.println("[SLAVE] No new networks to send");
+        currentNetworkIndex = 0;
+        networkCount = 0;
     }
-    Wire.write(dataToSend.c_str());
-    newNetworks.clear();
-    newDataAvailable = false;
-  } else {
-    Wire.write("No new data");
-  }
+    blinkLED();
+}
+
+const char* getAuthType(uint8_t wifiAuth) {
+    switch (wifiAuth) {
+        case WIFI_AUTH_OPEN:
+          return "[OPEN]";
+        case WIFI_AUTH_WEP:
+          return "[WEP]";
+        case WIFI_AUTH_WPA_PSK:
+          return "[WPA_PSK]";
+        case WIFI_AUTH_WPA2_PSK:
+          return "[WPA2_PSK]";
+        case WIFI_AUTH_WPA_WPA2_PSK:
+          return "[WPA_WPA2_PSK]";
+        case WIFI_AUTH_WPA2_ENTERPRISE:
+          return "[WPA2_ENTERPRISE]";
+        case WIFI_AUTH_WPA3_PSK:
+          return "[WPA3_PSK]";
+        case WIFI_AUTH_WPA2_WPA3_PSK:
+          return "[WPA2_WPA3_PSK]";
+        case WIFI_AUTH_WAPI_PSK:
+          return "[WAPI_PSK]";
+        default:
+          return "[UNDEFINED]";
+    }
+}
+
+void blinkLED() {
+    led = CRGB::White;
+    FastLED.show();
+    delay(100);
+    led = CRGB::Black;
+    FastLED.show();
 }
