@@ -4,6 +4,9 @@
 #include <SPI.h>
 #include <SD.h>
 #include <TinyGPS++.h>
+#include <FastLED.h>
+const int LED_PIN = 27;
+CRGB led;
 
 TinyGPSPlus gps;
 WebServer server(80);
@@ -14,7 +17,7 @@ const char* ssid = "ESP32_Dom_Network";
 const char* password = "12345678";
 const int i2c_slave_address = 0x55;
 #define TCAADDR 0x70
-#define NUM_PORTS 6
+#define NUM_PORTS 2
 
 struct NetworkInfo {
   char ssid[32];
@@ -28,6 +31,10 @@ NetworkInfo receivedNetworks[NUM_PORTS];
 int totalNetworksSent[NUM_PORTS] = { 0 };
 
 void setup() {
+  FastLED.addLeds<WS2812, LED_PIN, GRB>(&led, 1);
+  led = CRGB::Black;
+  FastLED.show();
+
   Serial.begin(115200);
   WiFi.softAP(ssid, password);
   IPAddress IP = WiFi.softAPIP();
@@ -84,7 +91,7 @@ void handleData() {
   data += "<p>Longitude: " + String(gps.location.lng(), 6) + "</p>";
   data += "<p>HDOP: " + String(gps.hdop.value()) + "</p>";
   data += "<p>Satellites: " + String(gps.satellites.value()) + "</p>";
-  
+
   for (int i = 0; i < NUM_PORTS; ++i) {
 
     data += "<h2>Port " + String(i) + ":</h2>";
@@ -108,6 +115,7 @@ void tcaselect(uint8_t i) {
 
 bool requestNetworkData(uint8_t port) {
   Wire.requestFrom(i2c_slave_address, sizeof(NetworkInfo));
+  blinkLED();
   if (Wire.available() < sizeof(NetworkInfo)) {
     return false;
   }
@@ -179,9 +187,13 @@ void logData(const NetworkInfo& network, uint8_t port) {
       dataFile.println(dataString);
       dataFile.close();
       Serial.println("Data written: " + dataString);
+      blinkLEDGreen();
     } else {
       Serial.println("Error opening " + fileName);
+      blinkLEDRed();
     }
+  } else {
+    blinkLEDPurple();
   }
 }
 
@@ -208,4 +220,29 @@ const char* getAuthType(uint8_t wifiAuth) {
     default:
       return "[UNDEFINED]";
   }
+}
+
+void blinkLEDWhite() {
+  led = CRGB::White;
+  blinkLED();
+}
+void blinkLEDRed() {
+  led = CRGB::Red;
+  blinkLED();
+}
+void blinkLEDGreen() {
+  led = CRGB::Green;
+  blinkLED();
+}
+void blinkLEDPurple() {
+  led = CRGB::Purple;
+  blinkLED();
+}
+
+void blinkLED() {
+  FastLED.show();
+  delay(100);
+  led = CRGB::Black;
+  FastLED.show();
+  
 }
