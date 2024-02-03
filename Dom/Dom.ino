@@ -1,5 +1,9 @@
+#define DomServer
+
 #include <WiFi.h>
+#ifdef DomServer
 #include <WebServer.h>
+#endif
 #include <Wire.h>
 #include <SPI.h>
 #include <SD.h>
@@ -9,12 +13,16 @@ const int LED_PIN = 27;
 CRGB led;
 
 TinyGPSPlus gps;
+#ifdef DomServer
 WebServer server(80);
+#endif
 File dataFile;
 String fileName;
 
+#ifdef DomServer
 const char* ssid = "ESP32_Dom_Network";
 const char* password = "12345678";
+#endif
 const int i2c_slave_address = 0x55;
 #define TCAADDR 0x70
 #define NUM_PORTS 3
@@ -36,6 +44,7 @@ void setup() {
   FastLED.show();
 
   Serial.begin(115200);
+#ifdef DomServer
   WiFi.softAP(ssid, password);
   IPAddress IP = WiFi.softAPIP();
   Serial.println("AP IP Address: " + IP.toString());
@@ -43,6 +52,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/data", handleData);
   server.begin();
+#endif
 
   Wire.begin(26, 32);  // SDA, SCL
   Serial.println("[MASTER] I2C Master Initialized");
@@ -60,7 +70,9 @@ void setup() {
 }
 
 void loop() {
+#ifdef DomServer
   server.handleClient();
+#endif
   while (Serial1.available() > 0) {
     gps.encode(Serial1.read());
   }
@@ -73,6 +85,7 @@ void loop() {
   }
 }
 
+#ifdef DomServer
 void handleRoot() {
   String html = "<!DOCTYPE html><html><head><title>ESP32 Network Stats</title>";
   html += "<script>";
@@ -105,6 +118,7 @@ void handleData() {
   server.send(200, "text/plain", data);
 }
 
+#endif
 void tcaselect(uint8_t i) {
   if (i >= NUM_PORTS) return;
   Wire.beginTransmission(TCAADDR);
@@ -121,7 +135,7 @@ bool requestNetworkData(uint8_t port) {
   }
   Wire.readBytes((byte*)&receivedNetworks[port], sizeof(NetworkInfo));
   if (receivedNetworks[port].channel > 14) {
-    Serial.println("[MASTER] Dropping network");
+    //    Serial.println("[MASTER] Dropping network");
     return false;
   }
   return true;
@@ -182,10 +196,12 @@ void initializeFile() {
 }
 
 void logData(const NetworkInfo& network, uint8_t port) {
+#ifdef DomServer
   if (strcmp(ssid, network.ssid) == 0) {
     Serial.println("Skip");
     return;
   }
+#endif
   if (gps.location.isValid()) {
     String utc = String(gps.date.year()) + "-" + gps.date.month() + "-" + gps.date.day() + " " + gps.time.hour() + ":" + gps.time.minute() + ":" + gps.time.second();
     String dataString = String(network.bssid) + "," + "\"" + network.ssid + "\"" + "," + network.security + "," + utc + "," + String(network.channel) + "," + String(network.rssi) + "," + String(gps.location.lat(), 6) + "," + String(gps.location.lng(), 6) + "," + String(gps.altitude.meters(), 2) + "," + String(gps.hdop.hdop(), 2) + ",WIFI";
