@@ -10,20 +10,15 @@ struct NetworkInfo {
   uint8_t channel;
 };
 
-#define PICO
+//#define PICO
 
-// 0..4
-#define NODEID 4
+#define NODEID 0
 #if NODEID==0
-const int channels[] = {1, 6, 11};
+const int channels[] = {1, 4, 7, 10, 13};
 #elif NODEID==1
-const int channels[] = {2, 7, 12};
+const int channels[] = {3, 6, 9, 12};
 #elif NODEID==2
-const int channels[] = {3, 8, 13};
-#elif NODEID==3
-const int channels[] = {4, 9, 14};
-#elif NODEID==4
-const int channels[] = {5, 10};
+const int channels[] = {2, 5, 8, 11, 14};
 #endif
 
 const int i2c_slave_address = 0x55;
@@ -33,6 +28,24 @@ NetworkInfo networks[MAX_NETWORKS];
 int networkCount = 0;
 int currentNetworkIndex = 0;
 CRGB led;
+
+const int channelCount = (sizeof(channels) / sizeof(channels[0]));
+
+const int maxMACs = channelCount * MAX_NETWORKS;
+String macAddressArray[maxMACs];
+int macArrayIndex = 0;
+bool overFlow = false;
+
+bool isMACSeen(const String& mac) {
+  for (int i = 0; i < (overFlow ? maxMACs : macArrayIndex); i++) {
+    if (macAddressArray[i] == mac) {
+      return true;
+    }
+  }
+  return false;
+}
+
+
 
 void setup() {
   Serial.begin(115200);
@@ -53,6 +66,7 @@ void setup() {
 #endif
   Wire.onRequest(requestEvent);
   Serial.println("[SLAVE] I2C initialized");
+  blinkLEDGreen();
 }
 
 const int FEW_NETWORKS_THRESHOLD = 1;
@@ -71,19 +85,35 @@ int incrementPerChannel[14] = {POP_INC, STD_INC, STD_INC, STD_INC, STD_INC, POP_
 
 
 
+int count = 0;
+
 void loop() {
   if (networkCount < MAX_NETWORKS) {
     //int numNetworks = WiFi.scanNetworks(false, true, false, timePerChannel[channel - 1], channel);
     //WiFi.scanNetworks(true);
-    for (int channelSelect = 0; channelSelect < (sizeof(channels) / sizeof(channels[0])); channelSelect++ ) {
+    for (int channelSelect = 0; channelSelect < channelCount; channelSelect++ ) {
       Serial.print("[SLAVE] Scanning ch ");
       Serial.println(String(channels[channelSelect]));
       int n = WiFi.scanNetworks(false, true, false, timePerChannel[channels[channelSelect] - 1], channels[channelSelect]);
       if (n >= 0) {
+        count = 0;
         for (int i = 0; i < n; ++i) {
+
+          String currentMAC = WiFi.BSSIDstr(i);
+          if (isMACSeen(currentMAC)) {
+            continue;
+          }
+          macAddressArray[macArrayIndex++] = currentMAC;
+          if (macArrayIndex >= maxMACs) {
+            macArrayIndex = 0;
+            overFlow = true;
+          }
           addNetwork(WiFi.SSID(i), WiFi.BSSIDstr(i), WiFi.RSSI(i), WiFi.encryptionType(i), WiFi.channel(i));
+          count++;
         }
-        WiFi.scanDelete();
+        if (count > 0) {
+          blinkLEDBlue();
+        }
       }
       updateTimePerChannel(channels[channelSelect], n);
     }
@@ -116,7 +146,7 @@ void requestEvent() {
     Wire.write((byte*)&networks[currentNetworkIndex], sizeof(NetworkInfo));
     Serial.println("[SLAVE] Sending network: " + String(networks[currentNetworkIndex].ssid));
     currentNetworkIndex++;
-    blinkLED();
+    blinkLEDWhite();
   } else {
     Serial.println("[SLAVE] No new networks to send");
     currentNetworkIndex = 0;
@@ -149,14 +179,26 @@ const char* getAuthType(uint8_t wifiAuth) {
   }
 }
 
-void blinkLED() {
+
+void blinkLEDWhite() {
   led = CRGB::White;
+  blinkLED();
+}
+void blinkLEDGreen() {
+  led = CRGB::Green;
+  blinkLED();
+}
+void blinkLEDBlue() {
+  led = CRGB::Blue;
+  blinkLED();
+}
+
+void blinkLED() {
   FastLED.show();
   delay(100);
   led = CRGB::Black;
   FastLED.show();
 }
-
 void updateTimePerChannel(int channel, int networksFound) {
   int timeIncrement = 0;
   // Adjust the time per channel based on the number of networks found
