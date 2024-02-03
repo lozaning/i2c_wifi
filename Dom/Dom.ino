@@ -17,7 +17,7 @@ const char* ssid = "ESP32_Dom_Network";
 const char* password = "12345678";
 const int i2c_slave_address = 0x55;
 #define TCAADDR 0x70
-#define NUM_PORTS 2
+#define NUM_PORTS 3
 
 struct NetworkInfo {
   char ssid[32];
@@ -120,6 +120,10 @@ bool requestNetworkData(uint8_t port) {
     return false;
   }
   Wire.readBytes((byte*)&receivedNetworks[port], sizeof(NetworkInfo));
+  if (receivedNetworks[port].channel > 14) {
+    Serial.println("[MASTER] Dropping network");
+    return false;
+  }
   return true;
 }
 
@@ -178,6 +182,10 @@ void initializeFile() {
 }
 
 void logData(const NetworkInfo& network, uint8_t port) {
+  if (strcmp(ssid, network.ssid) == 0) {
+    Serial.println("Skip");
+    return;
+  }
   if (gps.location.isValid()) {
     String utc = String(gps.date.year()) + "-" + gps.date.month() + "-" + gps.date.day() + " " + gps.time.hour() + ":" + gps.time.minute() + ":" + gps.time.second();
     String dataString = String(network.bssid) + "," + "\"" + network.ssid + "\"" + "," + network.security + "," + utc + "," + String(network.channel) + "," + String(network.rssi) + "," + String(gps.location.lat(), 6) + "," + String(gps.location.lng(), 6) + "," + String(gps.altitude.meters(), 2) + "," + String(gps.hdop.hdop(), 2) + ",WIFI";
@@ -244,5 +252,5 @@ void blinkLED() {
   delay(100);
   led = CRGB::Black;
   FastLED.show();
-  
+
 }
