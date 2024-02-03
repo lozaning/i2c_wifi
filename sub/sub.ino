@@ -10,8 +10,10 @@ struct NetworkInfo {
   uint8_t channel;
 };
 
+#define PICO
+
 // 0..4
-#define NODEID 0
+#define NODEID 4
 #if NODEID==0
 const int channels[] = {1, 6, 11};
 #elif NODEID==1
@@ -42,7 +44,13 @@ void setup() {
   led = CRGB::Black;
   FastLED.show();
 
+#ifdef PICO
+  //stamp-pico-d4
+  //Wire.setPins(32,33);
+  Wire.begin(i2c_slave_address, 32, 33);
+#else
   Wire.begin(i2c_slave_address);
+#endif
   Wire.onRequest(requestEvent);
   Serial.println("[SLAVE] I2C initialized");
 }
@@ -150,26 +158,28 @@ void blinkLED() {
 }
 
 void updateTimePerChannel(int channel, int networksFound) {
-  int timeIncrement = incrementPerChannel[channel];
-
+  int timeIncrement = 0;
   // Adjust the time per channel based on the number of networks found
   if (networksFound >= MANY_NETWORKS_THRESHOLD) {
-    timePerChannel[channel - 1] += timeIncrement;
-    if (timePerChannel[channel - 1] > MAX_TIME) {
-      timePerChannel[channel - 1] = MAX_TIME;
-    }
+    timeIncrement = incrementPerChannel[channel];
   } else if (networksFound <= FEW_NETWORKS_THRESHOLD) {
-    timePerChannel[channel - 1] -= timeIncrement;
-    if (timePerChannel[channel - 1] < MIN_TIME) {
-      timePerChannel[channel - 1] = MIN_TIME;
-    }
+    timeIncrement = - incrementPerChannel[channel];
   }
-  Serial.print("Saw ");
-  Serial.print(networksFound);
-  Serial.print(", so I updated timePerChannel for channel ");
-  Serial.print(channel);
-  Serial.print(" to ");
-  Serial.print(timePerChannel[channel - 1]);
-  Serial.print(" by ");
-  Serial.println(timeIncrement);
+  int timePerChannelOld = timePerChannel[channel - 1];
+  timePerChannel[channel - 1] += timeIncrement;
+  if (timePerChannel[channel - 1] > MAX_TIME) {
+    timePerChannel[channel - 1] = MAX_TIME;
+  } else if (timePerChannel[channel - 1] < MIN_TIME) {
+    timePerChannel[channel - 1] = MIN_TIME;
+  }
+  if (timePerChannelOld != timePerChannel[channel - 1]) {
+    Serial.print("Saw ");
+    Serial.print(networksFound);
+    Serial.print(", so I updated timePerChannel for channel ");
+    Serial.print(channel);
+    Serial.print(" by ");
+    Serial.print(timeIncrement);
+    Serial.print(" to ");
+    Serial.println(timePerChannel[channel - 1]);
+  }
 }
