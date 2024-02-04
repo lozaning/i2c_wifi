@@ -1,4 +1,6 @@
 #define DomServer
+//use esp32 (2.0.13), 80, dio 80, 8mb
+#define S3OLED
 
 #include <WiFi.h>
 #ifdef DomServer
@@ -8,9 +10,18 @@
 #include <SPI.h>
 #include <SD.h>
 #include <TinyGPS++.h>
+#ifdef S3OLED
+#define GPSSERIAL Serial2
+#include <M5AtomS3.h>
+int const blinkSize = 10;
+int fg = WHITE;
+int bg = BLACK;
+#else
 #include <FastLED.h>
+#define GPSSERIAL Serial1
 const int LED_PIN = 27;
 CRGB led;
+#endif
 
 TinyGPSPlus gps;
 #ifdef DomServer
@@ -25,7 +36,7 @@ const char* password = "12345678";
 #endif
 const int i2c_slave_address = 0x55;
 #define TCAADDR 0x70
-#define NUM_PORTS 3
+#define NUM_PORTS 4
 
 struct NetworkInfo {
   char ssid[32];
@@ -36,14 +47,27 @@ struct NetworkInfo {
 };
 
 NetworkInfo receivedNetworks[NUM_PORTS];
+#ifdef DomServer
 int totalNetworksSent[NUM_PORTS] = { 0 };
+#endif
+#ifdef S3OLED
+int countNetworks[14] = {0};
+#endif
 
 void setup() {
+#ifdef S3OLED
+  auto cfg = M5.config();
+  AtomS3.begin(cfg);
+  AtomS3.Display.setTextFont(&fonts::TomThumb);
+  AtomS3.Display.setTextSize(2);
+  AtomS3.Display.fillScreen(bg);
+  AtomS3.Display.setTextColor(fg);
+#else
   FastLED.addLeds<WS2812, LED_PIN, GRB>(&led, 1);
   led = CRGB::Black;
   FastLED.show();
-
   Serial.begin(115200);
+#endif
 #ifdef DomServer
   WiFi.softAP(ssid, password);
   IPAddress IP = WiFi.softAPIP();
@@ -54,34 +78,91 @@ void setup() {
   server.begin();
 #endif
 
+#ifdef S3OLED
+  Wire.begin(2, 1);  // SDA, SCL
+#else
   Wire.begin(26, 32);  // SDA, SCL
+#endif
   Serial.println("[MASTER] I2C Master Initialized");
-
+#ifdef S3OLED
+  SPI.begin(7, 8, 6, -1);  // Initialize SPI for SD card
+#else
   SPI.begin(23, 33, 19, -1);  // Initialize SPI for SD card
+#endif
   if (!SD.begin(-1, SPI, 40000000)) {
     Serial.println("SD Card initialization failed!");
     return;
   }
   Serial.println("SD Card initialized.");
 
-  Serial1.begin(9600, SERIAL_8N1, 22, -1);  // GPS Serial
+#ifdef S3OLED
+  GPSSERIAL.begin(9600, SERIAL_8N1, 5, -1);  // GPS Serial
+#else
+  GPSSERIAL.begin(9600, SERIAL_8N1, 22, -1);  // GPS Serial
+#endif
   waitForGPSFix();
 
   initializeFile();
   Serial.println("File created.");
 }
+#ifdef S3OLED
+long displayUpdateDelay = 15000;
+long lastDisplayUpdate = -15000;
+
+void updateScreen() {
+  bool update = (displayUpdateDelay + lastDisplayUpdate) < millis();
+  draw(update);
+}
+void draw() {
+  draw(true);
+}
+void draw(bool update) {
+  if (update) {
+    AtomS3.Display.fillScreen(bg);
+    AtomS3.Display.setTextColor(fg);
+
+    int col = 0;
+    int row = 0;
+    for (int i = 0; i < 14 ; i++) {
+      AtomS3.Display.drawString(String(i + 1) + " : " + String(countNetworks[i]),
+                                col * (AtomS3.Display.width() / 2),
+                                row * (AtomS3.Display.height() / 7));
+
+      if (i == 14)  {
+        //print ble as last element
+      }
+      col++;
+      if (col > 1) {
+        row++;
+        col = col % 2;
+      }
+    }
+    lastDisplayUpdate = millis();
+  }
+}
+#endif
 
 void loop() {
 #ifdef DomServer
   server.handleClient();
 #endif
-  while (Serial1.available() > 0) {
-    gps.encode(Serial1.read());
+#ifdef S3OLED
+  updateScreen();
+#endif
+
+  while (GPSSERIAL.available() > 0) {
+    gps.encode(GPSSERIAL.read());
   }
   for (uint8_t port = 0; port < NUM_PORTS; port++) {
     tcaselect(port);
+    blinkLEDWhite();
     if (requestNetworkData(port)) {
+#ifdef DomServer
       totalNetworksSent[port]++;
+#endif
+#ifdef S3OLED
+      countNetworks[receivedNetworks[port].channel - 1]++;
+#endif
       logData(receivedNetworks[port], port);
     }
   }
@@ -131,7 +212,7 @@ void tcaselect(uint8_t i) {
 
 bool requestNetworkData(uint8_t port) {
   Wire.requestFrom(i2c_slave_address, sizeof(NetworkInfo));
-  blinkLED();
+  blinkLEDWhite();
   if (Wire.available() < sizeof(NetworkInfo)) {
     return false;
   }
@@ -150,22 +231,24 @@ void waitForGPSFix() {
 
   Serial.println("Waiting for GPS fix...");
   while (!gps.location.isValid()) {
-    if (Serial1.available() > 0) {
-      gps.encode(Serial1.read());
+    if (GPSSERIAL.available() > 0) {
+      gps.encode(GPSSERIAL.read());
     }
 
     // Non-blocking LED blink
     if (millis() - lastBlink >= blinkInterval) {
       lastBlink = millis();
       ledState = !ledState;
-      //M5.dis.drawpix(0, ledState ? 0x800080 : 0x000000);  // Toggle purple LED
+#ifdef S3OLED
+      AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , ledState ? MAGENTA : WHITE);
+#else
+      led = led ? CRGB::Green : CRGB::Black;
+      FastLED.show();
+#endif
     }
   }
 
-  // Green LED indicates GPS fix
-  //M5.dis.drawpix(0, 0x00ff00);
-  delay(200);  // Short delay to show green LED
-  //M5.dis.clear();
+  blinkLEDGreen();
   Serial.println("GPS fix obtained.");
 }
 
@@ -249,26 +332,61 @@ const char* getAuthType(uint8_t wifiAuth) {
 }
 
 void blinkLEDWhite() {
+#ifdef S3OLED
+#else
   led = CRGB::White;
+#endif
   blinkLED();
+#ifdef S3OLED
+  fg = WHITE;
+#endif
 }
 void blinkLEDRed() {
+#ifdef S3OLED
+  fg = RED;
+#else
   led = CRGB::Red;
+#endif
   blinkLED();
+#ifdef S3OLED
+  fg = WHITE;
+#endif
 }
 void blinkLEDGreen() {
+#ifdef S3OLED
+  fg = GREEN;
+#else
   led = CRGB::Green;
+#endif
   blinkLED();
+#ifdef S3OLED
+  fg = WHITE;
+#endif
 }
 void blinkLEDPurple() {
+#ifdef S3OLED
+  fg = MAGENTA;
+#else
   led = CRGB::Purple;
+#endif
   blinkLED();
+#ifdef S3OLED
+  fg = WHITE;
+#endif
 }
 
 void blinkLED() {
+#ifdef S3OLED
+  AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , fg);
+#else
   FastLED.show();
-  delay(100);
+#endif
+  delay(50);
+#ifdef S3OLED
+  AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , bg);
+#else
   led = CRGB::Black;
   FastLED.show();
+#endif
 
 }
