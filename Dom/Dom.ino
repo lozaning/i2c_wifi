@@ -63,10 +63,12 @@ void setup() {
     return;
   }
   Serial.println("SD Card initialized.");
-  initializeFile();
 
   Serial1.begin(9600, SERIAL_8N1, 22, -1);  // GPS Serial
   waitForGPSFix();
+
+  initializeFile();
+  Serial.println("File created.");
 }
 
 void loop() {
