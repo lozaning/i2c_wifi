@@ -11,12 +11,14 @@
 #include <SD.h>
 #include <TinyGPS++.h>
 #ifdef S3OLED
+#define BTN 41
 #define GPSSERIAL Serial2
 #include <M5AtomS3.h>
 int const blinkSize = 10;
 int fg = WHITE;
 int bg = BLACK;
 #else
+#define BTN 39
 #include <FastLED.h>
 #define GPSSERIAL Serial1
 const int LED_PIN = 27;
@@ -37,6 +39,7 @@ const char* password = "12345678";
 const int i2c_slave_address = 0x55;
 #define TCAADDR 0x70
 #define NUM_PORTS 6
+bool oled = true;
 
 struct NetworkInfo {
   char ssid[32];
@@ -60,8 +63,8 @@ void setup() {
 #ifdef S3OLED
   auto cfg = M5.config();
   AtomS3.begin(cfg);
-//  AtomS3.Display.setTextFont(&fonts::TomThumb);
-//  AtomS3.Display.setTextSize(2);
+  //  AtomS3.Display.setTextFont(&fonts::TomThumb);
+  //  AtomS3.Display.setTextSize(2);
   AtomS3.Display.setTextFont(&fonts::FreeSerif9pt7b);
   AtomS3.Display.setTextSize(1);
   AtomS3.Display.fillScreen(bg);
@@ -114,10 +117,12 @@ long displayUpdateDelay = 15000;
 long lastDisplayUpdate = -15000;
 
 void updateScreen() {
+  if (!oled) return;
   bool update = (displayUpdateDelay + lastDisplayUpdate) < millis();
   draw(update);
 }
 void draw() {
+  if (!oled) return;
   draw(true);
 }
 void draw(bool update) {
@@ -135,7 +140,7 @@ void draw(bool update) {
                                 row * (AtomS3.Display.height() / ROWS));
 
       col++;
-      if (col > (COLS-1)) {
+      if (col > (COLS - 1)) {
         row++;
         col = col % COLS;
       }
@@ -146,6 +151,19 @@ void draw(bool update) {
 #endif
 
 void loop() {
+#ifdef S3OLED
+  AtomS3.update();
+
+  if (AtomS3.BtnA.wasReleased()) {
+    oled = !oled;
+    if (!oled) {
+      AtomS3.Display.clearDisplay();
+    }
+  }
+
+
+#endif
+
 #ifdef DomServer
   server.handleClient();
 #endif
@@ -243,7 +261,7 @@ void waitForGPSFix() {
       lastBlink = millis();
       ledState = !ledState;
 #ifdef S3OLED
-      AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , ledState ? MAGENTA : WHITE);
+      AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , ledState ? MAGENTA : BLACK);
 #else
       led = led ? CRGB::Green : CRGB::Black;
       FastLED.show();
@@ -340,7 +358,6 @@ const char* getAuthType(uint8_t wifiAuth) {
 }
 
 void blinkLEDWhite() {
-  return;
 #ifdef S3OLED
 #else
   led = CRGB::White;
@@ -385,6 +402,8 @@ void blinkLEDPurple() {
 }
 
 void blinkLED() {
+  if (!oled)
+    return;
 #ifdef S3OLED
   AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , fg);
 #else
