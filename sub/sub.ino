@@ -16,7 +16,7 @@ struct NetworkInfo {
 
 
 // 1..4
-#define NODEID 5
+#define NODEID 4
 #if NODEID==1
 const int channels[] = {1, 12};
 #elif NODEID==2
@@ -38,9 +38,15 @@ const int channels[] = {10, 11};
 
 const int i2c_slave_address = 0x55;
 #ifdef ATOMS3
-const int LED_PIN = 35;
+#define LED_PIN 35
+#define SUB_SDA 2
+#define SUB_SCL 1
 #else
-const int LED_PIN = 27;
+#define LED_PIN 27
+#ifdef PICO
+#define SUB_SDA 32
+#define SUB_SCL 33
+#endif
 #endif
 const int MAX_NETWORKS = 500;
 NetworkInfo networks[MAX_NETWORKS];
@@ -168,13 +174,9 @@ void setup() {
   led = CRGB::Black;
   FastLED.show();
 
-#ifdef PICO
-  //stamp-pico-d4
-  Wire.begin(i2c_slave_address, 32, 33);
+#if defined(PICO) || defined(ATOMS3)
+  Wire.begin(i2c_slave_address, SUB_SDA, SUB_SCL;
 #else
-#ifdef ATOMS3
-  Wire.begin(i2c_slave_address, 2, 1);
-#endif
   Wire.begin(i2c_slave_address);
 #endif
   Wire.onRequest(requestEvent);

@@ -11,6 +11,12 @@
 #include <SD.h>
 #include <TinyGPS++.h>
 #ifdef S3OLED
+#define SUB_SDA 2
+#define SUB_SCL 1
+#define GPS_RX 5
+#define SD_CLK 7
+#define SD_MISO 8
+#define SD_MOSI 6
 #define BTN 41
 #define GPSSERIAL Serial2
 #include <M5AtomS3.h>
@@ -18,6 +24,12 @@ int const blinkSize = 10;
 int fg = WHITE;
 int bg = BLACK;
 #else
+#define SUB_SDA 26
+#define SUB_SCL 32
+#define GPS_RX 22
+#define SD_CLK 23
+#define SD_MISO 33
+#define SD_MOSI 19
 #define BTN 39
 #include <FastLED.h>
 #define GPSSERIAL Serial1
@@ -85,28 +97,16 @@ void setup() {
   server.begin();
 #endif
 
-#ifdef S3OLED
-  Wire.begin(2, 1);  // SDA, SCL
-#else
-  Wire.begin(26, 32);  // SDA, SCL
-#endif
+  Wire.begin(SUB_SDA , SUB_SCL);  // SDA, SCL
   Serial.println("[MASTER] I2C Master Initialized");
-#ifdef S3OLED
-  SPI.begin(7, 8, 6, -1);  // Initialize SPI for SD card
-#else
-  SPI.begin(23, 33, 19, -1);  // Initialize SPI for SD card
-#endif
+  SPI.begin(SD_CLK, SD_MISO, SD_MOSI, -1);  // Initialize SPI for SD card
   if (!SD.begin(-1, SPI, 40000000)) {
     Serial.println("SD Card initialization failed!");
     return;
   }
   Serial.println("SD Card initialized.");
 
-#ifdef S3OLED
-  GPSSERIAL.begin(9600, SERIAL_8N1, 5, -1);  // GPS Serial
-#else
-  GPSSERIAL.begin(9600, SERIAL_8N1, 22, -1);  // GPS Serial
-#endif
+  GPSSERIAL.begin(9600, SERIAL_8N1, GPS_RX, -1);  // GPS Serial
   waitForGPSFix();
 
   initializeFile();
