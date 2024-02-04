@@ -10,19 +10,31 @@ struct NetworkInfo {
   uint8_t channel;
 };
 
+//different i2c pins, same rgb led
 //#define PICO
 
-#define NODEID 0
-#if NODEID==0
-const int channels[] = {1, 4, 7, 10, 13};
-#elif NODEID==1
-const int channels[] = {3, 6, 9, 12};
+//use m5stack board conf (2.1.0), not esp32 (2.0.11)
+//different i2c pins, different rgb led
+//#define ATOMS3
+
+// 1..4
+#define NODEID 1
+#if NODEID==1
+const int channels[] = {1, 5, 9, 13};
 #elif NODEID==2
-const int channels[] = {2, 5, 8, 11, 14};
+const int channels[] = {2, 6, 10, 14};
+#elif NODEID==3
+const int channels[] = {3, 7, 11};
+#elif NODEID==4
+const int channels[] = {4, 8, 12};
 #endif
 
 const int i2c_slave_address = 0x55;
+#ifdef ATOMS3
+const int LED_PIN = 35;
+#else
 const int LED_PIN = 27;
+#endif
 const int MAX_NETWORKS = 500;
 NetworkInfo networks[MAX_NETWORKS];
 int networkCount = 0;
@@ -59,9 +71,11 @@ void setup() {
 
 #ifdef PICO
   //stamp-pico-d4
-  //Wire.setPins(32,33);
   Wire.begin(i2c_slave_address, 32, 33);
 #else
+#ifdef ATOMS3
+  Wire.begin(i2c_slave_address, 2, 1);
+#endif
   Wire.begin(i2c_slave_address);
 #endif
   Wire.onRequest(requestEvent);
@@ -195,7 +209,7 @@ void blinkLEDBlue() {
 
 void blinkLED() {
   FastLED.show();
-  delay(100);
+  delay(50);
   led = CRGB::Black;
   FastLED.show();
 }
