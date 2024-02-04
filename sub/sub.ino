@@ -8,25 +8,32 @@ struct NetworkInfo {
   int32_t rssi;
   char security[20];
   uint8_t channel;
+  char type;
 };
 
 //different i2c pins, same rgb led
 //#define PICO
 
-//use m5stack board conf (2.1.0), not esp32 (2.0.11)
-//different i2c pins, different rgb led
-//#define ATOMS3
 
 // 1..4
-#define NODEID 1
+#define NODEID 5
 #if NODEID==1
-const int channels[] = {1, 5, 9, 13};
+const int channels[] = {1, 12};
 #elif NODEID==2
-const int channels[] = {2, 6, 10, 14};
+const int channels[] = {2, 3, 4};
 #elif NODEID==3
-const int channels[] = {3, 7, 11};
+const int channels[] = {6, 13};
 #elif NODEID==4
-const int channels[] = {4, 8, 12};
+//use m5stack board conf (2.1.0), not esp32 (2.0.11)
+//different i2c pins, different rgb led
+#define ATOMS3
+const int channels[] = {5, 7, 8};
+#elif NODEID==5
+const int channels[] = {9, 14};
+//since 14 unused in eu
+#define enableBLE
+#elif NODEID==6
+const int channels[] = {10, 11};
 #endif
 
 const int i2c_slave_address = 0x55;
@@ -57,7 +64,99 @@ bool isMACSeen(const String& mac) {
   return false;
 }
 
+#ifdef enableBLE
+//copied from j.hewitt rev3
 
+#include <BLEDevice.h>
+#include <BLEScan.h>
+#include <BLEAdvertisedDevice.h>
+
+BLEScan* pBLEScan;
+
+#define mac_history_len 256
+
+struct mac_addr {
+  unsigned char bytes[6];
+};
+
+struct mac_addr mac_history[mac_history_len];
+unsigned int mac_history_cursor = 0;
+
+void save_mac(unsigned char* mac) {
+  if (mac_history_cursor >= mac_history_len) {
+    mac_history_cursor = 0;
+  }
+  struct mac_addr tmp;
+  for (int x = 0; x < 6 ; x++) {
+    tmp.bytes[x] = mac[x];
+  }
+
+  mac_history[mac_history_cursor] = tmp;
+  mac_history_cursor++;
+}
+
+boolean seen_mac(unsigned char* mac) {
+
+  struct mac_addr tmp;
+  for (int x = 0; x < 6 ; x++) {
+    tmp.bytes[x] = mac[x];
+  }
+
+  for (int x = 0; x < mac_history_len; x++) {
+    if (mac_cmp(tmp, mac_history[x])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void print_mac(struct mac_addr mac) {
+  for (int x = 0; x < 6 ; x++) {
+    Serial.print(mac.bytes[x], HEX);
+    Serial.print(":");
+  }
+}
+
+boolean mac_cmp(struct mac_addr addr1, struct mac_addr addr2) {
+  for (int y = 0; y < 6 ; y++) {
+    if (addr1.bytes[y] != addr2.bytes[y]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void clear_mac_history() {
+  struct mac_addr tmp;
+  for (int x = 0; x < 6 ; x++) {
+    tmp.bytes[x] = 0;
+  }
+
+  for (int x = 0; x < mac_history_len; x++) {
+    mac_history[x] = tmp;
+  }
+
+  mac_history_cursor = 0;
+}
+
+class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
+    void onResult(BLEAdvertisedDevice advertisedDevice) {
+      unsigned char mac_bytes[6];
+      int values[6];
+
+      if (6 == sscanf(advertisedDevice.getAddress().toString().c_str(), "%x:%x:%x:%x:%x:%x%*c", &values[0], &values[1], &values[2], &values[3], &values[4], &values[5])) {
+        for (int i = 0; i < 6; ++i ) {
+          mac_bytes[i] = (unsigned char) values[i];
+        }
+
+        if (!seen_mac(mac_bytes)) {
+          save_mac(mac_bytes);
+          addBleNetwork(advertisedDevice.getName().c_str(), advertisedDevice.getAddress().toString().c_str(), advertisedDevice.getRSSI());
+        }
+      }
+    }
+};
+#endif
 
 void setup() {
   Serial.begin(115200);
@@ -80,7 +179,16 @@ void setup() {
 #endif
   Wire.onRequest(requestEvent);
   Serial.println("[SLAVE] I2C initialized");
-  blinkLEDGreen();
+#ifdef enableBLE
+  Serial.println("Setting up Bluetooth scanning");
+  BLEDevice::init("");
+  pBLEScan = BLEDevice::getScan(); //create new scan
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(false); //active scan uses more power, but get results faster
+  pBLEScan->setInterval(50);
+  pBLEScan->setWindow(40);  // less or equal setInterval value
+#endif
+  Serial.println("Hydrahead started!");
 }
 
 const int FEW_NETWORKS_THRESHOLD = 1;
@@ -102,15 +210,21 @@ int incrementPerChannel[14] = {POP_INC, STD_INC, STD_INC, STD_INC, STD_INC, POP_
 int count = 0;
 
 void loop() {
+  int savedNetworks = 0;
   if (networkCount < MAX_NETWORKS) {
-    //int numNetworks = WiFi.scanNetworks(false, true, false, timePerChannel[channel - 1], channel);
-    //WiFi.scanNetworks(true);
+#ifdef enableBLE
+    BLEScanResults foundDevices = pBLEScan->start(2.5, false);
+    Serial.print("Devices found: ");
+    Serial.println(mac_history_cursor);
+    savedNetworks += mac_history_cursor;
+    Serial.println("Scan done!");
+    pBLEScan->clearResults();   // delete results fromBLEScan buffer to release memory
+#endif
     for (int channelSelect = 0; channelSelect < channelCount; channelSelect++ ) {
       Serial.print("[SLAVE] Scanning ch ");
       Serial.println(String(channels[channelSelect]));
       int n = WiFi.scanNetworks(false, true, false, timePerChannel[channels[channelSelect] - 1], channels[channelSelect]);
       if (n >= 0) {
-        count = 0;
         for (int i = 0; i < n; ++i) {
 
           String currentMAC = WiFi.BSSIDstr(i);
@@ -122,28 +236,40 @@ void loop() {
             macArrayIndex = 0;
             overFlow = true;
           }
-          addNetwork(WiFi.SSID(i), WiFi.BSSIDstr(i), WiFi.RSSI(i), WiFi.encryptionType(i), WiFi.channel(i));
-          count++;
-        }
-        if (count > 0) {
-          blinkLEDBlue();
+          addWifiNetwork(WiFi.SSID(i), WiFi.BSSIDstr(i), WiFi.RSSI(i), WiFi.encryptionType(i), WiFi.channel(i));
+          savedNetworks++;
         }
       }
       updateTimePerChannel(channels[channelSelect], n);
     }
   }
+  if (savedNetworks > 0) {
+    blinkLEDBlue();
+  }
 }
 
-void addNetwork(const String& ssid, const String& bssid, int32_t rssi, wifi_auth_mode_t encryptionType, uint8_t channel) {
+void addBleNetwork(const String& ssid, const String& bssid, int32_t rssi) {
+  if (addNetwork(ssid, bssid, rssi, "[BLE]", 0, 'b'))
+    Serial.println("[SLAVE] Added BLE device: SSID: " + ssid + ", BSSID: " + bssid + ", RSSI: " + String(rssi) + ", Security: {BLE], Channel: 0");
+}
+
+void addWifiNetwork(const String& ssid, const String& bssid, int32_t rssi, wifi_auth_mode_t encryptionType, uint8_t channel) {
+  if (addNetwork(ssid, bssid, rssi, getAuthType(encryptionType), channel, 'w'))
+    Serial.println("[SLAVE] Added wifi network: SSID: " + ssid + ", BSSID: " + bssid + ", RSSI: " + String(rssi) + ", Security: " + encryptionType + ", Channel: " + String(channel));
+}
+
+bool addNetwork(const String& ssid, const String& bssid, int32_t rssi, const String& encryptionType, uint8_t channel, char type) {
   if (!isNetworkInList(bssid) && networkCount < MAX_NETWORKS) {
     strncpy(networks[networkCount].ssid, ssid.c_str(), sizeof(networks[networkCount].ssid) - 1);
     strncpy(networks[networkCount].bssid, bssid.c_str(), sizeof(networks[networkCount].bssid) - 1);
     networks[networkCount].rssi = rssi;
-    strncpy(networks[networkCount].security, getAuthType(encryptionType), sizeof(networks[networkCount].security) - 1);
+    strncpy(networks[networkCount].security, encryptionType.c_str(), sizeof(networks[networkCount].security) - 1);
     networks[networkCount].channel = channel;
-    Serial.println("[SLAVE] Added network: SSID: " + ssid + ", BSSID: " + bssid + ", RSSI: " + String(rssi) + ", Security: " + getAuthType(encryptionType) + ", Channel: " + String(channel));
+    networks[networkCount].type = type;
     networkCount++;
+    return true;
   }
+  return false;
 }
 
 bool isNetworkInList(const String& bssid) {

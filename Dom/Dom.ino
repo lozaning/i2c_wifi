@@ -36,7 +36,7 @@ const char* password = "12345678";
 #endif
 const int i2c_slave_address = 0x55;
 #define TCAADDR 0x70
-#define NUM_PORTS 4
+#define NUM_PORTS 6
 
 struct NetworkInfo {
   char ssid[32];
@@ -44,6 +44,7 @@ struct NetworkInfo {
   int32_t rssi;
   char security[20];
   uint8_t channel;
+  char type;
 };
 
 NetworkInfo receivedNetworks[NUM_PORTS];
@@ -51,15 +52,18 @@ NetworkInfo receivedNetworks[NUM_PORTS];
 int totalNetworksSent[NUM_PORTS] = { 0 };
 #endif
 #ifdef S3OLED
-int countNetworks[14] = {0};
+// 0 is BLE
+int countNetworks[15] = {0};
 #endif
 
 void setup() {
 #ifdef S3OLED
   auto cfg = M5.config();
   AtomS3.begin(cfg);
-  AtomS3.Display.setTextFont(&fonts::TomThumb);
-  AtomS3.Display.setTextSize(2);
+//  AtomS3.Display.setTextFont(&fonts::TomThumb);
+//  AtomS3.Display.setTextSize(2);
+  AtomS3.Display.setTextFont(&fonts::FreeSerif9pt7b);
+  AtomS3.Display.setTextSize(1);
   AtomS3.Display.fillScreen(bg);
   AtomS3.Display.setTextColor(fg);
 #else
@@ -120,21 +124,20 @@ void draw(bool update) {
   if (update) {
     AtomS3.Display.fillScreen(bg);
     AtomS3.Display.setTextColor(fg);
-
+#define COLS 2
+#define ROWS 8
     int col = 0;
     int row = 0;
-    for (int i = 0; i < 14 ; i++) {
-      AtomS3.Display.drawString(String(i + 1) + " : " + String(countNetworks[i]),
-                                col * (AtomS3.Display.width() / 2),
-                                row * (AtomS3.Display.height() / 7));
+    for (int i = 0; i < 15 ; i++) {
+      //0 is ble
+      AtomS3.Display.drawString(String(i) + " : " + String(countNetworks[i]),
+                                col * (AtomS3.Display.width() / COLS),
+                                row * (AtomS3.Display.height() / ROWS));
 
-      if (i == 14)  {
-        //print ble as last element
-      }
       col++;
-      if (col > 1) {
+      if (col > (COLS-1)) {
         row++;
-        col = col % 2;
+        col = col % COLS;
       }
     }
     lastDisplayUpdate = millis();
@@ -161,7 +164,7 @@ void loop() {
       totalNetworksSent[port]++;
 #endif
 #ifdef S3OLED
-      countNetworks[receivedNetworks[port].channel - 1]++;
+      countNetworks[receivedNetworks[port].channel]++;
 #endif
       logData(receivedNetworks[port], port);
     }
@@ -289,7 +292,12 @@ void logData(const NetworkInfo& network, uint8_t port) {
 #endif
   if (gps.location.isValid()) {
     String utc = String(gps.date.year()) + "-" + gps.date.month() + "-" + gps.date.day() + " " + gps.time.hour() + ":" + gps.time.minute() + ":" + gps.time.second();
-    String dataString = String(network.bssid) + "," + "\"" + network.ssid + "\"" + "," + network.security + "," + utc + "," + String(network.channel) + "," + String(network.rssi) + "," + String(gps.location.lat(), 6) + "," + String(gps.location.lng(), 6) + "," + String(gps.altitude.meters(), 2) + "," + String(gps.hdop.hdop(), 2) + ",WIFI";
+    String dataString = String(network.bssid) + "," + "\"" + network.ssid + "\"" + "," + network.security + "," + utc + "," + String(network.channel) + "," + String(network.rssi) + "," + String(gps.location.lat(), 6) + "," + String(gps.location.lng(), 6) + "," + String(gps.altitude.meters(), 2) + "," + String(gps.hdop.hdop(), 2);
+    if (network.type == 'w' ) {
+      dataString += ",WIFI";
+    } else if (network.type == 'b' ) {
+      dataString += ",BLE";
+    }
 
     File dataFile = SD.open(fileName, FILE_APPEND);
     if (dataFile) {
@@ -332,6 +340,7 @@ const char* getAuthType(uint8_t wifiAuth) {
 }
 
 void blinkLEDWhite() {
+  return;
 #ifdef S3OLED
 #else
   led = CRGB::White;
