@@ -36,6 +36,7 @@ const int channels[] = {9, 14};
 const int channels[] = {10, 11};
 #endif
 
+volatile bool scan = false;
 const int i2c_slave_address = 0x55;
 #ifdef ATOMS3
 #define LED_PIN 35
@@ -212,6 +213,9 @@ int incrementPerChannel[14] = {POP_INC, STD_INC, STD_INC, STD_INC, STD_INC, POP_
 int count = 0;
 
 void loop() {
+  if (!scan) {
+    return;
+  }
   int savedNetworks = 0;
   if (networkCount < MAX_NETWORKS) {
 #ifdef enableBLE
@@ -284,6 +288,10 @@ bool isNetworkInList(const String& bssid) {
 }
 
 void requestEvent() {
+  if (!scan) {
+    //only start scanning if dom is ready
+    scan = true;
+  }
   if (currentNetworkIndex < networkCount) {
     Wire.write((byte*)&networks[currentNetworkIndex], sizeof(NetworkInfo));
     Serial.println("[SLAVE] Sending network: " + String(networks[currentNetworkIndex].ssid));
