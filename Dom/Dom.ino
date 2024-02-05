@@ -21,8 +21,10 @@
 #define GPSSERIAL Serial2
 #include <M5AtomS3.h>
 int const blinkSize = 10;
+int const centerText = 3;
 int fg = WHITE;
 int bg = BLACK;
+bool fileInit = false;
 #else
 #define SUB_SDA 26
 #define SUB_SCL 32
@@ -87,16 +89,18 @@ void setup() {
   FastLED.show();
   Serial.begin(115200);
 #endif
+#ifdef S3OLED
+  drawGPSStatus();
+  drawFileStatus();
+#endif
 #ifdef DomServer
   WiFi.softAP(ssid, password);
   IPAddress IP = WiFi.softAPIP();
   Serial.println("AP IP Address: " + IP.toString());
-
   server.on("/", handleRoot);
   server.on("/data", handleData);
   server.begin();
 #endif
-
   Wire.begin(SUB_SDA , SUB_SCL);  // SDA, SCL
   Serial.println("[MASTER] I2C Master Initialized");
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI, -1);  // Initialize SPI for SD card
@@ -104,15 +108,16 @@ void setup() {
     Serial.println("SD Card initialization failed!");
     unsigned long startMillis = millis();
     const unsigned long blinkInterval = 500;
-    bool ledState = false;
     while (millis() - startMillis < 5000) {  // Continue blinking for 5 seconds
-      if (millis() - startMillis > blinkInterval) {
-        startMillis = millis();
+#ifdef S3OLED
+      processButton();
+#endif
+      if (((millis() - startMillis) / blinkInterval) % 2  == 1 ) {
         blinkLEDRed();
       }
     }
+    Serial.println("Starting without SD Card, no GPS fix and no proper file initialization.");
     return;
-
   }
   Serial.println("SD Card initialized.");
 
@@ -126,6 +131,41 @@ void setup() {
 long displayUpdateDelay = 15000;
 long lastDisplayUpdate = -15000;
 
+void processButton() {
+  AtomS3.update();
+
+  if (AtomS3.BtnA.wasReleased()) {
+    oled = !oled;
+    if (!oled) {
+      AtomS3.Display.clearDisplay();
+    }
+  }
+}
+
+void drawGPSStatus() {
+  if (!oled) return;
+  drawStatus(gps.location.isValid(), 'G', 3, MAGENTA);
+}
+
+void drawFileStatus() {
+  if (!oled) return;
+  drawStatus(fileInit, 'F', 2, RED);
+}
+
+// text and back are switched if active
+void drawStatus(bool active, char letter, int dx, int text) {
+  int x = AtomS3.Display.width() - dx * blinkSize;
+  int y = AtomS3.Display.height() - blinkSize;
+  AtomS3.Display.setTextFont(&fonts::TomThumb);
+  AtomS3.Display.setTextSize(1);
+  AtomS3.Display.fillRect(x, y, blinkSize , blinkSize , active ? text : BLACK);
+  if (!active) {
+    AtomS3.Display.drawRect(x, y, blinkSize , blinkSize , /*active ? BLACK :*/ text);
+  }
+  AtomS3.Display.setTextColor(active ? BLACK : text);
+  AtomS3.Display.drawString(String(letter), x + centerText , y + centerText );
+}
+
 void updateScreen() {
   if (!oled) return;
   bool update = (displayUpdateDelay + lastDisplayUpdate) < millis();
@@ -138,6 +178,10 @@ void draw() {
 void draw(bool update) {
   if (update) {
     AtomS3.Display.fillScreen(bg);
+    drawGPSStatus();
+    drawFileStatus();
+    AtomS3.Display.setTextFont(&fonts::FreeSerif9pt7b);
+    AtomS3.Display.setTextSize(1);
     AtomS3.Display.setTextColor(fg);
 #define COLS 2
 #define ROWS 8
@@ -145,7 +189,7 @@ void draw(bool update) {
     int row = 0;
     for (int i = 0; i < 15 ; i++) {
       //0 is ble
-      AtomS3.Display.drawString(String(i) + " : " + String(countNetworks[i]),
+      AtomS3.Display.drawString((i < 10 ? "0": "" )+String(i) + " : " + (String(countNetworks[i])),
                                 col * (AtomS3.Display.width() / COLS),
                                 row * (AtomS3.Display.height() / ROWS));
 
@@ -162,14 +206,7 @@ void draw(bool update) {
 
 void loop() {
 #ifdef S3OLED
-  AtomS3.update();
-
-  if (AtomS3.BtnA.wasReleased()) {
-    oled = !oled;
-    if (!oled) {
-      AtomS3.Display.clearDisplay();
-    }
-  }
+  processButton();
 #endif
 #ifdef DomServer
   server.handleClient();
@@ -257,17 +294,24 @@ void waitForGPSFix() {
   bool ledState = false;
 
   Serial.println("Waiting for GPS fix...");
+#ifdef S3OLED
+  drawGPSStatus();
+#endif
   while (!gps.location.isValid()) {
     if (GPSSERIAL.available() > 0) {
       gps.encode(GPSSERIAL.read());
     }
 
+#ifdef S3OLED
+    processButton();
+#endif
     // Non-blocking LED blink
     if (millis() - lastBlink >= blinkInterval) {
       lastBlink = millis();
       ledState = !ledState;
 #ifdef S3OLED
-      AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , ledState ? MAGENTA : BLACK);
+      if (oled)
+        AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , ledState ? MAGENTA : BLACK);
 #else
       led = led ? CRGB::Purple : CRGB::Black;
       FastLED.show();
@@ -275,6 +319,9 @@ void waitForGPSFix() {
     }
   }
 
+#ifdef S3OLED
+  drawGPSStatus();
+#endif
   blinkLEDGreen();
   Serial.println("GPS fix obtained.");
 }
@@ -305,6 +352,10 @@ void initializeFile() {
   } else {
     Serial.println("Using existing file: " + fileName);
   }
+#ifdef S3OLED
+  fileInit = true;
+  drawFileStatus();
+#endif
 }
 
 void logData(const NetworkInfo& network, uint8_t port) {
@@ -325,11 +376,17 @@ void logData(const NetworkInfo& network, uint8_t port) {
 
     File dataFile = SD.open(fileName, FILE_APPEND);
     if (dataFile) {
+#ifdef S3OLED
+      fileInit = true;
+#endif
       dataFile.println(dataString);
       dataFile.close();
       Serial.println("Data written: " + dataString);
       blinkLEDGreen();
     } else {
+#ifdef S3OLED
+      fileInit = false;
+#endif
       Serial.println("Error opening " + fileName);
       blinkLEDRed();
     }
