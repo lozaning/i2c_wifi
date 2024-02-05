@@ -100,9 +100,19 @@ void setup() {
   Wire.begin(SUB_SDA , SUB_SCL);  // SDA, SCL
   Serial.println("[MASTER] I2C Master Initialized");
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI, -1);  // Initialize SPI for SD card
-  if (!SD.begin(-1, SPI, 40000000)) {
+  if (!SD.begin()) {
     Serial.println("SD Card initialization failed!");
+    unsigned long startMillis = millis();
+    const unsigned long blinkInterval = 500;
+    bool ledState = false;
+    while (millis() - startMillis < 5000) {  // Continue blinking for 5 seconds
+      if (millis() - startMillis > blinkInterval) {
+        startMillis = millis();
+        blinkLEDRed();
+      }
+    }
     return;
+
   }
   Serial.println("SD Card initialized.");
 
@@ -160,17 +170,13 @@ void loop() {
       AtomS3.Display.clearDisplay();
     }
   }
-
-
 #endif
-
 #ifdef DomServer
   server.handleClient();
 #endif
 #ifdef S3OLED
   updateScreen();
 #endif
-
   while (GPSSERIAL.available() > 0) {
     gps.encode(GPSSERIAL.read());
   }
@@ -263,7 +269,7 @@ void waitForGPSFix() {
 #ifdef S3OLED
       AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , ledState ? MAGENTA : BLACK);
 #else
-      led = led ? CRGB::Green : CRGB::Black;
+      led = led ? CRGB::Purple : CRGB::Black;
       FastLED.show();
 #endif
     }
