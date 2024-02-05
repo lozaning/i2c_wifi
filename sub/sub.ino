@@ -32,6 +32,7 @@ const int channels[] = {5, 7, 8};
 const int channels[] = {9, 14};
 //since 14 unused in eu
 #define enableBLE
+#define MATRIX
 #elif NODEID==6
 const int channels[] = {10, 11};
 #endif
@@ -53,7 +54,12 @@ const int MAX_NETWORKS = 500;
 NetworkInfo networks[MAX_NETWORKS];
 int networkCount = 0;
 int currentNetworkIndex = 0;
-CRGB led;
+#ifdef MATRIX
+const int numLeds = 25;
+#else
+const int numLeds = 1;
+#endif
+CRGB led[numLeds];
 
 const int channelCount = (sizeof(channels) / sizeof(channels[0]));
 
@@ -186,8 +192,12 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
-  FastLED.addLeds<WS2812, LED_PIN, GRB>(&led, 1);
-  led = CRGB::Black;
+
+  FastLED.addLeds<WS2812, LED_PIN, GRB>(led, numLeds);
+#ifdef MATRIX
+  FastLED.setBrightness(32);
+#endif
+  setLed(CRGB::Black);
   FastLED.show();
 
 #if defined(PICO) || defined(ATOMS3)
@@ -206,10 +216,8 @@ void setup() {
   pBLEScan->setInterval(timePerChannel[0]);
   pBLEScan->setWindow(40);  // less or equal setInterval value
 #endif
-  Serial.println("Hydrahead started!");
+  Serial.println("Hydrahead " + String(NODEID) + " started!");
 }
-
-int count = 0;
 
 void loop() {
   if (!scan) {
@@ -290,6 +298,7 @@ void requestEvent() {
   if (!scan) {
     //only start scanning if dom is ready
     scan = true;
+
   }
   if (currentNetworkIndex < networkCount) {
     Wire.write((byte*)&networks[currentNetworkIndex], sizeof(NetworkInfo));
@@ -328,24 +337,72 @@ const char* getAuthType(uint8_t wifiAuth) {
   }
 }
 
+void setLed(CRGB c) {
+  for (int i = 0; i < numLeds; i++) {
+    led[i] = c;
+  }
+}
 
 void blinkLEDWhite() {
-  led = CRGB::White;
+  setLed(CRGB::White);
   blinkLED();
 }
 void blinkLEDGreen() {
-  led = CRGB::Green;
+  setLed(CRGB::Green);
   blinkLED();
 }
 void blinkLEDBlue() {
-  led = CRGB::Blue;
+  setLed(CRGB::Blue);
   blinkLED();
 }
 
+//blibk on matrix takes 3 times the blink on lite
 void blinkLED() {
+  int d = 50;
+#ifdef MATRIX
+  CRGB c = led[0];
+//  for (int i = 0; i < 3; i++) {
+  for (int i = 2; i > -1; i--) {
+    if (i == 0) {
+      //outer ring
+      CRGB c2 = CRGB::Black;
+      setLed(c);
+      led[6] = c2;
+      led[7] = c2;
+      led[8] = c2;
+      led[11] = c2;
+      led[12] = c2;
+      led[13] = c2;
+      led[16] = c2;
+      led[17] = c2;
+      led[18] = c2;
+    }
+    if (i == 1) {
+      setLed(CRGB::Black);
+      //middle ring
+      led[6] = c;
+      led[7] = c;
+      led[8] = c;
+      led[11] = c;
+      led[13] = c;
+      led[1] = c;
+      led[17] = c;
+      led[18] = c;
+    }
+    if (i == 2) {
+      setLed(CRGB::Black);
+      //center point
+      led[12] = c;
+    }
+    FastLED.show();
+    delay(d);
+    setLed(CRGB::Black);
+  }
+#else
   FastLED.show();
-  delay(50);
-  led = CRGB::Black;
+  delay(d);
+  setLed(CRGB::Black);
+#endif
   FastLED.show();
 }
 void updateTimePerChannel(int channel, int networksFound) {
