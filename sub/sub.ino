@@ -16,7 +16,7 @@ struct NetworkInfo {
 
 
 // 1..4
-#define NODEID 4
+#define NODEID 5
 #if NODEID==1
 const int channels[] = {1, 12};
 #elif NODEID==2
@@ -165,6 +165,21 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks {
 };
 #endif
 
+const int FEW_NETWORKS_THRESHOLD = 1;
+const int MANY_NETWORKS_THRESHOLD = 8;
+const int POP_INC = 75;   // Higher increment for popular channels
+const int STD_INC = 50;  // Standard increment
+const int RARE_INC = 30;      // Lower increment for rare channels
+const int MAX_TIME = 500;
+const int MIN_TIME = 50;
+
+const int popularChannels[] = { 1, 6, 11 };
+const int standardChannels[] = { 2, 3, 4, 5, 7, 8, 9, 10 };
+const int rareChannels[] = { 12, 13, 14 };  // Depending on region
+const int ble = 50;
+int timePerChannel[15] = { ble, 300, 200, 200, 200, 200, 300, 200, 200, 200, 200, 300, 200, 200, 200 };
+int incrementPerChannel[15] = {0, POP_INC, STD_INC, STD_INC, STD_INC, STD_INC, POP_INC, STD_INC, STD_INC, STD_INC, STD_INC, POP_INC, RARE_INC, RARE_INC, RARE_INC};
+
 void setup() {
   Serial.begin(115200);
   Serial.println("[SLAVE] Starting up");
@@ -188,27 +203,11 @@ void setup() {
   pBLEScan = BLEDevice::getScan(); //create new scan
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setActiveScan(false); //active scan uses more power, but get results faster
-  pBLEScan->setInterval(50);
+  pBLEScan->setInterval(timePerChannel[0]);
   pBLEScan->setWindow(40);  // less or equal setInterval value
 #endif
   Serial.println("Hydrahead started!");
 }
-
-const int FEW_NETWORKS_THRESHOLD = 1;
-const int MANY_NETWORKS_THRESHOLD = 8;
-const int POP_INC = 75;   // Higher increment for popular channels
-const int STD_INC = 50;  // Standard increment
-const int RARE_INC = 30;      // Lower increment for rare channels
-const int MAX_TIME = 500;
-const int MIN_TIME = 50;
-
-const int popularChannels[] = { 1, 6, 11 };
-const int standardChannels[] = { 2, 3, 4, 5, 7, 8, 9, 10 };
-const int rareChannels[] = { 12, 13, 14 };  // Depending on region
-int timePerChannel[14] = { 300, 200, 200, 200, 200, 300, 200, 200, 200, 200, 300, 200, 200, 200 };
-int incrementPerChannel[14] = {POP_INC, STD_INC, STD_INC, STD_INC, STD_INC, POP_INC, STD_INC, STD_INC, STD_INC, STD_INC, POP_INC, RARE_INC, RARE_INC, RARE_INC};
-
-
 
 int count = 0;
 
@@ -229,7 +228,7 @@ void loop() {
     for (int channelSelect = 0; channelSelect < channelCount; channelSelect++ ) {
       Serial.print("[SLAVE] Scanning ch ");
       Serial.println(String(channels[channelSelect]));
-      int n = WiFi.scanNetworks(false, true, false, timePerChannel[channels[channelSelect] - 1], channels[channelSelect]);
+      int n = WiFi.scanNetworks(false, true, false, timePerChannel[channels[channelSelect]], channels[channelSelect]);
       if (n >= 0) {
         for (int i = 0; i < n; ++i) {
 
@@ -357,14 +356,14 @@ void updateTimePerChannel(int channel, int networksFound) {
   } else if (networksFound <= FEW_NETWORKS_THRESHOLD) {
     timeIncrement = - incrementPerChannel[channel];
   }
-  int timePerChannelOld = timePerChannel[channel - 1];
-  timePerChannel[channel - 1] += timeIncrement;
-  if (timePerChannel[channel - 1] > MAX_TIME) {
-    timePerChannel[channel - 1] = MAX_TIME;
-  } else if (timePerChannel[channel - 1] < MIN_TIME) {
-    timePerChannel[channel - 1] = MIN_TIME;
+  int timePerChannelOld = timePerChannel[channel];
+  timePerChannel[channel] += timeIncrement;
+  if (timePerChannel[channel] > MAX_TIME) {
+    timePerChannel[channel] = MAX_TIME;
+  } else if (timePerChannel[channel] < MIN_TIME) {
+    timePerChannel[channel] = MIN_TIME;
   }
-  if (timePerChannelOld != timePerChannel[channel - 1]) {
+  if (timePerChannelOld != timePerChannel[channel]) {
     Serial.print("Saw ");
     Serial.print(networksFound);
     Serial.print(", so I updated timePerChannel for channel ");
@@ -372,6 +371,6 @@ void updateTimePerChannel(int channel, int networksFound) {
     Serial.print(" by ");
     Serial.print(timeIncrement);
     Serial.print(" to ");
-    Serial.println(timePerChannel[channel - 1]);
+    Serial.println(timePerChannel[channel]);
   }
 }
