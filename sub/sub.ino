@@ -175,7 +175,7 @@ void setup() {
   FastLED.show();
 
 #if defined(PICO) || defined(ATOMS3)
-  Wire.begin(i2c_slave_address, SUB_SDA, SUB_SCL;
+  Wire.begin(i2c_slave_address, SUB_SDA, SUB_SCL);
 #else
   Wire.begin(i2c_slave_address);
 #endif
