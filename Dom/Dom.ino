@@ -1,6 +1,6 @@
 #define DomServer
 //use esp32 (2.0.13), 80, dio 80, 8mb
-#define S3OLED
+//#define S3OLED
 
 #include <WiFi.h>
 #ifdef DomServer
@@ -189,7 +189,13 @@ void draw(bool update) {
     int row = 0;
     for (int i = 0; i < 15 ; i++) {
       //0 is ble
-      AtomS3.Display.drawString((i < 10 ? "0": "" )+String(i) + " : " + (String(countNetworks[i])),
+      int c = countNetworks[i];
+      String ct = String(c);
+      if (c>1000) {
+        c = c / 1000;
+        ct = String (c) + "k";
+      }
+      AtomS3.Display.drawString((i < 10 ? "0": "" )+String(i) + " : " + (ct),
                                 col * (AtomS3.Display.width() / COLS),
                                 row * (AtomS3.Display.height() / ROWS));
 
