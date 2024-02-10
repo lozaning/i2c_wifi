@@ -229,6 +229,7 @@ void loop() {
     BLEScanResults foundDevices = pBLEScan->start(2.5, false);
     Serial.print("Devices found: ");
     Serial.println(mac_history_cursor);
+    updateTimePerChannel(0, mac_history_cursor);
     savedNetworks += mac_history_cursor;
     Serial.println("Scan done!");
     pBLEScan->clearResults();   // delete results fromBLEScan buffer to release memory
