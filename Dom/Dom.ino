@@ -1,16 +1,90 @@
-#define DomServer
-//use esp32 (2.0.13), 80, dio 80, 8mb
+/*
+   M5Atom-Hydra
+
+   Hardware-Compatibility
+
+   ^----------------------------------------------------------------------------------------------^
+   |  Hardware                     | Dom | Sub | I2C | ESP-now | Notes                            |
+   |  Atom Lite                    |  x  |  x  |  x  |    ?    |                                  |
+   |  Atom (Lite) Matrix           |  ?  |  x! |  x  |    ?    | why u no work                    |
+   |  Atom (Lite) Echo             |  -  |  ?  |  ?  |    x    | i2s conflicts spi & gps serial   |
+   |  Atom S3 (Lite) Oled          |  x! |  ?  |  x  |    ?    |                                  |
+   |  Atom S3 Lite                 |  x  |  ?  |  x  |    x    | ch5,7,8 nothing found            |
+   |  Stamp (Mate)                 |  ?  |  x  |  -  |    x    | i2c slave error                  |
+   |  Stamp (C3)                   |  ?  |  ?  |  -  |    x    | i2c slave error                  |
+   |  Stamp (S3)                   |  ?  |  ?  |  -  |    ?    | untested (i2c slave error)       |
+   |                               |     |     |     |         |                                  |
+   °----------------------------------------------------------------------------------------------°
+
+
+*/
+
+// CHOOSE COMMUNICATION
+//#define COMM_I2C
+#define COMM_NOW
+
+// CHOOSE WEBSERVER
+//#define DomServer
+
+// CHOOSE HARDWARE
 //#define S3OLED
+#define S3LITE
+//#define ATOMLITE
 
 #include <WiFi.h>
 #ifdef DomServer
 #include <WebServer.h>
 #endif
+
+#ifdef COMM_I2C
 #include <Wire.h>
+#endif
+
+#ifdef COMM_NOW
+#include <esp_now.h>
+//how often to send the msg to subs to start scanning (in case a sub reboots or is rebooted)
+//1 min = 60000
+#define BROADCASTINTERVALL 60000
+#endif
+
 #include <SPI.h>
 #include <SD.h>
 #include <TinyGPS++.h>
+
 #ifdef S3OLED
+#define S3
+int const blinkSize = 10;
+int const centerText = 3;
+int fg = WHITE;
+int bg = BLACK;
+bool fileInit = false;
+#endif
+
+#ifdef S3LITE
+#define S3
+#define LITE
+const int LED_PIN = 35;
+#endif
+
+#ifdef ATOMLITE 
+#define LITE
+#define SUB_SDA 26
+#define SUB_SCL 32
+#define GPS_RX 22
+#define SD_CLK 23
+#define SD_MISO 33
+#define SD_MOSI 19
+#define BTN 39
+#define GPSSERIAL Serial1
+const int LED_PIN = 27;
+#endif
+
+#ifdef LITE
+#include <FastLED.h>
+CRGB led;
+#endif
+
+#ifdef S3
 #define SUB_SDA 2
 #define SUB_SCL 1
 #define GPS_RX 5
@@ -20,24 +94,8 @@
 #define BTN 41
 #define GPSSERIAL Serial2
 #include <M5AtomS3.h>
-int const blinkSize = 10;
-int const centerText = 3;
-int fg = WHITE;
-int bg = BLACK;
-bool fileInit = false;
-#else
-#define SUB_SDA 26
-#define SUB_SCL 32
-#define GPS_RX 22
-#define SD_CLK 23
-#define SD_MISO 33
-#define SD_MOSI 19
-#define BTN 39
-#include <FastLED.h>
-#define GPSSERIAL Serial1
-const int LED_PIN = 27;
-CRGB led;
 #endif
+
 
 TinyGPSPlus gps;
 #ifdef DomServer
@@ -50,10 +108,14 @@ String fileName;
 const char* ssid = "ESP32_Dom_Network";
 const char* password = "12345678";
 #endif
+#ifdef COMM_I2C
 const int i2c_slave_address = 0x55;
 #define TCAADDR 0x70
+#endif
 #define NUM_PORTS 6
+#ifdef S3OLED
 bool oled = true;
+#endif
 
 struct NetworkInfo {
   char ssid[32];
@@ -62,15 +124,46 @@ struct NetworkInfo {
   char security[20];
   uint8_t channel;
   char type;
+#ifdef COMM_NOW  
+  int boardId;
+#endif
 };
 
 NetworkInfo receivedNetworks[NUM_PORTS];
+
 #ifdef DomServer
 int totalNetworksSent[NUM_PORTS] = { 0 };
 #endif
 #ifdef S3OLED
 // 0 is BLE
 int countNetworks[15] = {0};
+#endif
+
+
+#ifdef COMM_NOW
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+esp_now_peer_info_t peerInfo;
+long lastBroadcastMillis = -1;
+NetworkInfo myData;
+
+// Callback function that will be executed when data is received
+void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
+  memcpy(&myData, incomingData, sizeof(myData));
+  int node = myData.boardId;
+  Serial.println("Received " + String(myData.ssid));
+#ifdef DomServer
+  totalNetworksSent[node]++;
+#endif
+#ifdef S3OLED
+  countNetworks[myData.channel]++;
+#endif
+  logData(myData, node);
+}
+
+void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
+  Serial.print("\r\nLast Packet Send Status:\t");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
 #endif
 
 void setup() {
@@ -101,8 +194,11 @@ void setup() {
   server.on("/data", handleData);
   server.begin();
 #endif
+#ifdef COMM_I2C
   Wire.begin(SUB_SDA , SUB_SCL);  // SDA, SCL
   Serial.println("[MASTER] I2C Master Initialized");
+#endif
+
   SPI.begin(SD_CLK, SD_MISO, SD_MOSI, -1);  // Initialize SPI for SD card
   if (!SD.begin()) {
     Serial.println("SD Card initialization failed!");
@@ -120,13 +216,49 @@ void setup() {
     return;
   }
   Serial.println("SD Card initialized.");
-
   GPSSERIAL.begin(9600, SERIAL_8N1, GPS_RX, -1);  // GPS Serial
   waitForGPSFix();
 
   initializeFile();
   Serial.println("File created.");
+
+
+#ifdef COMM_NOW
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() != 0) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+
+  esp_now_register_recv_cb(OnDataRecv);
+  esp_now_register_send_cb(OnDataSent);
+  Serial.println("[MASTER] ESP-NOW initialized");
+
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  // Add peer
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Failed to add peer");
+    return;
+  }
+
+  // tell sub to start scanning
+  sendSubMsg();
+#endif
 }
+
+#ifdef COMM_NOW
+uint8_t dummy = 0;
+
+void  sendSubMsg() {
+  esp_now_send(broadcastAddress, (uint8_t*)&dummy, sizeof(dummy));
+  lastBroadcastMillis = millis();
+}
+#endif
+
 #ifdef S3OLED
 long displayUpdateDelay = 15000;
 long lastDisplayUpdate = -15000;
@@ -191,11 +323,11 @@ void draw(bool update) {
       //0 is ble
       int c = countNetworks[i];
       String ct = String(c);
-      if (c>1000) {
+      if (c > 1000) {
         c = c / 1000;
         ct = String (c) + "k";
       }
-      AtomS3.Display.drawString((i < 10 ? "0": "" )+String(i) + " : " + (ct),
+      AtomS3.Display.drawString((i < 10 ? "0" : "" ) + String(i) + " : " + (ct),
                                 col * (AtomS3.Display.width() / COLS),
                                 row * (AtomS3.Display.height() / ROWS));
 
@@ -223,6 +355,7 @@ void loop() {
   while (GPSSERIAL.available() > 0) {
     gps.encode(GPSSERIAL.read());
   }
+#ifdef COMM_I2C
   for (uint8_t port = 0; port < NUM_PORTS; port++) {
     tcaselect(port);
     blinkLEDWhite();
@@ -236,6 +369,18 @@ void loop() {
       logData(receivedNetworks[port], port);
     }
   }
+#endif
+
+#ifdef COMM_NOW
+  //in case a sub rebooted
+  long n = millis();
+  if (n - lastBroadcastMillis > BROADCASTINTERVALL) {
+    sendSubMsg();
+  } else {
+    //more possiblity to receive msgs
+    delay(10);
+  }
+#endif
 }
 
 #ifdef DomServer
@@ -272,6 +417,7 @@ void handleData() {
 }
 
 #endif
+#ifdef COMM_I2C
 void tcaselect(uint8_t i) {
   if (i >= NUM_PORTS) return;
   Wire.beginTransmission(TCAADDR);
@@ -293,6 +439,7 @@ bool requestNetworkData(uint8_t port) {
   }
   return true;
 }
+#endif
 
 void waitForGPSFix() {
   unsigned long lastBlink = 0;
@@ -401,30 +548,6 @@ void logData(const NetworkInfo& network, uint8_t port) {
   }
 }
 
-const char* getAuthType(uint8_t wifiAuth) {
-  switch (wifiAuth) {
-    case WIFI_AUTH_OPEN:
-      return "[OPEN]";
-    case WIFI_AUTH_WEP:
-      return "[WEP]";
-    case WIFI_AUTH_WPA_PSK:
-      return "[WPA_PSK]";
-    case WIFI_AUTH_WPA2_PSK:
-      return "[WPA2_PSK]";
-    case WIFI_AUTH_WPA_WPA2_PSK:
-      return "[WPA_WPA2_PSK]";
-    case WIFI_AUTH_WPA2_ENTERPRISE:
-      return "[WPA2_ENTERPRISE]";
-    case WIFI_AUTH_WPA3_PSK:
-      return "[WPA3_PSK]";
-    case WIFI_AUTH_WPA2_WPA3_PSK:
-      return "[WPA2_WPA3_PSK]";
-    case WIFI_AUTH_WAPI_PSK:
-      return "[WAPI_PSK]";
-    default:
-      return "[UNDEFINED]";
-  }
-}
 
 void blinkLEDWhite() {
 #ifdef S3OLED
@@ -471,9 +594,9 @@ void blinkLEDPurple() {
 }
 
 void blinkLED() {
+#ifdef S3OLED
   if (!oled)
     return;
-#ifdef S3OLED
   AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , fg);
 #else
   FastLED.show();

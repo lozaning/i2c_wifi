@@ -1,22 +1,20 @@
-#include <Wire.h>
-#include <WiFi.h>
-#include <FastLED.h>
 
-struct NetworkInfo {
-  char ssid[32];
-  char bssid[18];
-  int32_t rssi;
-  char security[20];
-  uint8_t channel;
-  char type;
-};
+// CHOOSE COMMUNICATION
+#define COMM_I2C
+//#define COMM_NOW
 
+// CHOOSE HARDWARE
 //#define PICO
 //#define MATRIX
+#define S3LITE
 
+// CHOOSE NODE & CHANNEL DISTRIBUTION
+#define SET3
 
-// 1..4
-#define NODEID 5
+#ifdef SET1
+#define MAX_NETWORKS 500
+// 1..6
+#define NODEID 2
 #if NODEID==1
 const int channels[] = {1, 12};
 #elif NODEID==2
@@ -32,9 +30,55 @@ const int channels[] = {9, 14};
 #elif NODEID==6
 const int channels[] = {10, 11};
 #endif
+#endif
+
+#ifdef SET3
+#define MAX_NETWORKS 400
+// 1..3
+#define NODEID 3
+#if NODEID==1
+const int channels[] = {1, 2, 3, 4, 5};
+#elif NODEID==2
+const int channels[] = {6, 7, 8, 9, 10};
+#elif NODEID==3
+#define enableBLE
+const int channels[] = {11, 12, 13, 14};
+#endif
+#endif
+
+
+#ifdef COMM_I2C
+#include <Wire.h>
+#endif
+
+#ifdef COMM_NOW
+#include <esp_now.h>
+#endif
+
+#include <WiFi.h>
+#include <FastLED.h>
+
+struct NetworkInfo {
+  char ssid[32];
+  char bssid[18];
+  int32_t rssi;
+  char security[20];
+  uint8_t channel;
+  char type;
+#ifdef COMM_NOW  
+  int boardId;
+#endif
+};
+
+#ifdef COMM_NOW
+uint8_t broadcastAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+esp_now_peer_info_t peerInfo;
+#endif
 
 volatile bool scan = false;
+#ifdef COMM_I2C
 const int i2c_slave_address = 0x55;
+#endif
 #ifdef S3LITE
 #define LED_PIN 35
 #define SUB_SDA 2
@@ -46,7 +90,6 @@ const int i2c_slave_address = 0x55;
 #define SUB_SCL 33
 #endif
 #endif
-const int MAX_NETWORKS = 500;
 NetworkInfo networks[MAX_NETWORKS];
 int networkCount = 0;
 int currentNetworkIndex = 0;
@@ -72,6 +115,25 @@ bool isMACSeen(const String& mac) {
   }
   return false;
 }
+
+#ifdef COMM_NOW
+// Callback when data is sent
+void OnDataSent(const uint8_t* mac_addr, esp_now_send_status_t status) {
+  Serial.print("\r\nLast Packet Send Status:\t");
+  Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
+}
+
+//callback to enable scanning
+void OnDataRecv(const uint8_t* mac, const uint8_t* incomingData, int len) {
+  if(!scan) {
+    scan = true;
+    blinkLEDGreen();
+  }
+}
+
+
+
+#endif
 
 #ifdef enableBLE
 //copied from j.hewitt rev3
@@ -189,6 +251,32 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
 
+#ifdef COMM_NOW
+  // Init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Error initializing ESP-NOW");
+    return;
+  }
+  // Once ESPNow is successfully Init, we will register for Send CB to
+  // get the status of Trasnmitted packet
+  //esp_now_set_self_role(ESP_NOW_ROLE_CONTROLLER);
+  esp_now_register_send_cb(OnDataSent);
+  //callbakc to start scanning, no use scanning, if dom has no gps
+  esp_now_register_recv_cb(OnDataRecv);
+
+  // Register peer
+  memcpy(peerInfo.peer_addr, broadcastAddress, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  // Add peer
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Failed to add peer");
+    return;
+  }
+  Serial.println("[SLAVE] ESP-NOW initialized");
+#endif
+
   FastLED.addLeds<WS2812, LED_PIN, GRB>(led, numLeds);
 #ifdef MATRIX
   FastLED.setBrightness(32);
@@ -196,6 +284,7 @@ void setup() {
   setLed(CRGB::Black);
   FastLED.show();
 
+#ifdef COMM_I2C
 #if defined(PICO) || defined(S3LITE)
   Wire.begin(i2c_slave_address, SUB_SDA, SUB_SCL);
 #else
@@ -203,6 +292,8 @@ void setup() {
 #endif
   Wire.onRequest(requestEvent);
   Serial.println("[SLAVE] I2C initialized");
+#endif
+
 #ifdef enableBLE
   Serial.println("Setting up Bluetooth scanning");
   BLEDevice::init("");
@@ -264,8 +355,15 @@ void addBleNetwork(const String& ssid, const String& bssid, int32_t rssi) {
 }
 
 void addWifiNetwork(const String& ssid, const String& bssid, int32_t rssi, wifi_auth_mode_t encryptionType, uint8_t channel) {
-  if (addNetwork(ssid, bssid, rssi, getAuthType(encryptionType), channel, 'w'))
+  if (addNetwork(ssid, bssid, rssi, getAuthType(encryptionType), channel, 'w')) {
     Serial.println("[SLAVE] Added wifi network: SSID: " + ssid + ", BSSID: " + bssid + ", RSSI: " + String(rssi) + ", Security: " + encryptionType + ", Channel: " + String(channel));
+#ifdef COMM_NOW
+    esp_now_send(broadcastAddress, (uint8_t*)&networks[currentNetworkIndex], sizeof(NetworkInfo));
+    Serial.println("[SLAVE] Sending network via espnow: " + String(networks[currentNetworkIndex].ssid));
+    currentNetworkIndex++;
+    blinkLEDWhite();
+#endif
+  }
 }
 
 bool addNetwork(const String& ssid, const String& bssid, int32_t rssi, const String& encryptionType, uint8_t channel, char type) {
@@ -276,6 +374,9 @@ bool addNetwork(const String& ssid, const String& bssid, int32_t rssi, const Str
     strncpy(networks[networkCount].security, encryptionType.c_str(), sizeof(networks[networkCount].security) - 1);
     networks[networkCount].channel = channel;
     networks[networkCount].type = type;
+#ifdef COMM_NOW
+    networks[networkCount].boardId = NODEID;
+#endif
     networkCount++;
     return true;
   }
@@ -291,6 +392,7 @@ bool isNetworkInList(const String& bssid) {
   return false;
 }
 
+#ifdef COMM_I2C
 void requestEvent() {
   if (!scan) {
     //only start scanning if dom is ready
@@ -308,6 +410,7 @@ void requestEvent() {
     networkCount = 0;
   }
 }
+#endif
 
 const char* getAuthType(uint8_t wifiAuth) {
   switch (wifiAuth) {
