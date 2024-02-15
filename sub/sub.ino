@@ -11,8 +11,8 @@ struct NetworkInfo {
   char type;
 };
 
-//different i2c pins, same rgb led
 //#define PICO
+//#define MATRIX
 
 
 // 1..4
@@ -24,22 +24,18 @@ const int channels[] = {2, 3, 4};
 #elif NODEID==3
 const int channels[] = {6, 13};
 #elif NODEID==4
-//use m5stack board conf (2.1.0), not esp32 (2.0.11)
-//different i2c pins, different rgb led
-//#define ATOMS3
 const int channels[] = {5, 7, 8};
 #elif NODEID==5
 const int channels[] = {9, 14};
 //since 14 unused in eu
 #define enableBLE
-//#define MATRIX
 #elif NODEID==6
 const int channels[] = {10, 11};
 #endif
 
 volatile bool scan = false;
 const int i2c_slave_address = 0x55;
-#ifdef ATOMS3
+#ifdef S3LITE
 #define LED_PIN 35
 #define SUB_SDA 2
 #define SUB_SCL 1
@@ -200,7 +196,7 @@ void setup() {
   setLed(CRGB::Black);
   FastLED.show();
 
-#if defined(PICO) || defined(ATOMS3)
+#if defined(PICO) || defined(S3LITE)
   Wire.begin(i2c_slave_address, SUB_SDA, SUB_SCL);
 #else
   Wire.begin(i2c_slave_address);
@@ -357,12 +353,11 @@ void blinkLEDBlue() {
   blinkLED();
 }
 
-//blibk on matrix takes 3 times the blink on lite
+//blink on matrix takes 3 times the blink on lite
 void blinkLED() {
   int d = 50;
 #ifdef MATRIX
   CRGB c = led[0];
-//  for (int i = 0; i < 3; i++) {
   for (int i = 2; i > -1; i--) {
     if (i == 0) {
       //outer ring
@@ -406,6 +401,7 @@ void blinkLED() {
 #endif
   FastLED.show();
 }
+
 void updateTimePerChannel(int channel, int networksFound) {
   int timeIncrement = 0;
   // Adjust the time per channel based on the number of networks found
