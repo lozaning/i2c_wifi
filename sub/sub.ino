@@ -26,13 +26,13 @@ const int channels[] = {6, 13};
 #elif NODEID==4
 //use m5stack board conf (2.1.0), not esp32 (2.0.11)
 //different i2c pins, different rgb led
-#define ATOMS3
+//#define ATOMS3
 const int channels[] = {5, 7, 8};
 #elif NODEID==5
 const int channels[] = {9, 14};
 //since 14 unused in eu
 #define enableBLE
-#define MATRIX
+//#define MATRIX
 #elif NODEID==6
 const int channels[] = {10, 11};
 #endif
