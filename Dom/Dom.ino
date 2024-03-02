@@ -34,6 +34,13 @@
 #include <WiFi.h>
 #ifdef DomServer
 #include <WebServer.h>
+#ifdef S3LITE
+#define DOM_SSID "PicoHydra"
+#define DOM_PASS "12345678"
+#else
+#define DOM_SSID "OledHydra"
+#define DOM_PASS "12345678"
+#endif
 #endif
 
 #ifdef COMM_I2C
@@ -105,8 +112,8 @@ File dataFile;
 String fileName;
 
 #ifdef DomServer
-const char* ssid = "ESP32_Dom_Network";
-const char* password = "12345678";
+const char* ssid = DOM_SSID;
+const char* password = DOM_PASS;
 #endif
 #ifdef COMM_I2C
 const int i2c_slave_address = 0x55;
@@ -466,7 +473,7 @@ void waitForGPSFix() {
       if (oled)
         AtomS3.Display.fillRect((AtomS3.Display.width() - blinkSize), (AtomS3.Display.height() - blinkSize) , blinkSize , blinkSize , ledState ? MAGENTA : BLACK);
 #else
-      led = led ? CRGB::Purple : CRGB::Black;
+      led = ledState ? CRGB::Purple : CRGB::Black;
       FastLED.show();
 #endif
     }
