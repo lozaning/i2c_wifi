@@ -294,7 +294,9 @@ bool oled = true;
 #ifdef MiniOLED
 const int oled_i2c_slave_address = 0x3c;
 SSD1306Wire  display(oled_i2c_slave_address, SUB_SDA , SUB_SCL);
-int x = 28; int y = 24;
+int x = 28;
+//int y = 24; //vertically "flipped"
+int y = 0;
 int currentChannelOled = 0;
 #define DISPLAYTIME 1500
 #endif
@@ -385,7 +387,8 @@ void setup() {
 #ifdef MiniOLED
   display.init();
 
-  display.flipScreenVertically();
+  //display.flipScreenVertically();
+  //display.mirrorScreen();
 
   display.clear();
   display.setTextAlignment(TEXT_ALIGN_LEFT);
@@ -484,11 +487,13 @@ void processButton() {
 #ifdef MiniOLED
       display.clear();
       display.display();
+      display.displayOff();
+    } else {
+      display.displayOn();
 #endif
     }
   }
 }
-
 #endif
 
 #ifdef S3OLED
@@ -743,7 +748,7 @@ void initializeFile() {
 #endif
 }
 
-void logData(const NetworkInfo& network, uint8_t port) {
+void logData(const NetworkInfo & network, uint8_t port) {
 #ifdef DomServer
   if (strcmp(ssid, network.ssid) == 0) {
     Serial.println("Skip");
