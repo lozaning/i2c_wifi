@@ -18,6 +18,8 @@
 
 
 */
+//if no sd, do not abort setup, but skip gps and directly start espnow
+//#define TESTMODE
 
 // CHOOSE COMMUNICATION
 //#define COMM_I2C
@@ -406,16 +408,18 @@ void setup() {
       }
     }
     Serial.println("Starting without SD Card, no GPS fix and no proper file initialization.");
-    //    return;
+#ifndef TESTMODE
+    return;
+#endif
   }
-  /*
-    Serial.println("SD Card initialized.");
-    GPSSERIAL.begin(9600, SERIAL_8N1, GPS_RX, -1);  // GPS Serial
-    waitForGPSFix();
+#ifndef TESTMODE
+  Serial.println("SD Card initialized.");
+  GPSSERIAL.begin(9600, SERIAL_8N1, GPS_RX, -1);  // GPS Serial
+  waitForGPSFix();
 
-    initializeFile();
-    Serial.println("File created.");
-  */
+  initializeFile();
+  Serial.println("File created.");
+#endif
 
 #ifdef COMM_NOW
   WiFi.mode(WIFI_STA);
